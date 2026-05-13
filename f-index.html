@@ -278,6 +278,53 @@
     background: linear-gradient(135deg, rgba(14,165,233,0.10), rgba(248,212,155,0.06));
   }
 
+  .countdown-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .countdown-copy { min-width: 0; }
+
+  .notify-btn {
+    width: 46px;
+    height: 46px;
+    border-radius: 16px;
+    border: 1px solid rgba(148,163,184,0.18);
+    background: rgba(15,23,42,0.58);
+    color: rgba(159,176,199,0.62);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 20px;
+    line-height: 1;
+    transform-origin: top center;
+    transition: color 0.22s, border-color 0.22s, background 0.22s, box-shadow 0.22s, transform 0.22s;
+  }
+
+  .notify-btn:hover {
+    color: var(--accent-warm);
+    border-color: rgba(248,212,155,0.34);
+    transform: translateY(-1px) rotate(-5deg);
+  }
+
+  .notify-btn.active {
+    color: var(--accent-warm);
+    border-color: rgba(248,212,155,0.58);
+    background: rgba(248,212,155,0.10);
+    box-shadow: 0 0 24px rgba(248,212,155,0.26), inset 0 0 18px rgba(248,212,155,0.08);
+    animation: bellGlow 1.8s ease-in-out infinite;
+  }
+
+  .notify-btn.blocked {
+    color: rgba(251,113,133,0.62);
+    border-color: rgba(251,113,133,0.24);
+    cursor: not-allowed;
+  }
+
   .countdown-label {
     font-family: 'DM Mono', monospace;
     font-size: 9px;
@@ -420,6 +467,7 @@
     text-shadow: 0 0 16px rgba(248,212,155,0.45);
   }
 
+  @keyframes bellGlow { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(5deg); } }
   @keyframes arrowFly { 0% { opacity: 0; transform: translateX(0) scale(0.4); } 15%, 85% { opacity: 1; } 100% { opacity: 0; transform: translateX(var(--arrow-dx)) scale(1.1); } }
   @keyframes fadeDown { from { opacity: 0; transform: translateY(-22px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes fadeUp { from { opacity: 0; transform: translateY(22px); } to { opacity: 1; transform: translateY(0); } }
@@ -461,6 +509,7 @@ const DATA_URLS = [
 
 let studentsData = null;
 let timerInterval = null;
+let notificationInterval = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[ch]));
@@ -474,6 +523,55 @@ function normalizeId(value) {
     .replace(/[٠-٩]/g, d => arabic.indexOf(d))
     .replace(/[۰-۹]/g, d => eastern.indexOf(d))
     .replace(/[^0-9]/g, '');
+}
+
+function normalizeSubjectName(subject) {
+  const clean = String(subject || '').trim();
+  const aliases = new Map([
+    ['Intro. to Oper. Research&Deci.Sup.sys.', 'Intro to OR'],
+    ['Machine Learn. Fund.', 'Machine Learning']
+  ]);
+  return aliases.get(clean) || clean;
+}
+
+function getExamKey(student, exam) {
+  return [student.id, exam.subject, exam.date, exam.timeStart].join('|');
+}
+
+function getNotifyKey(student, exam) {
+  return `examNotify:${getExamKey(student, exam)}`;
+}
+
+function getDaysRemaining(exam) {
+  return Math.max(0, Math.floor((toTs(exam) - Date.now()) / 86400000));
+}
+
+function getNotificationState(student, exam) {
+  try {
+    return JSON.parse(localStorage.getItem(getNotifyKey(student, exam)) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function setNotificationState(student, exam, state) {
+  try {
+    localStorage.setItem(getNotifyKey(student, exam), JSON.stringify(state));
+  } catch {
+    // Browser storage can be unavailable in private or restricted contexts.
+  }
+}
+
+function clearNotificationState(student, exam) {
+  try {
+    localStorage.removeItem(getNotifyKey(student, exam));
+  } catch {
+    // Browser storage can be unavailable in private or restricted contexts.
+  }
+}
+
+function canSendNotifications() {
+  return 'Notification' in window && Notification.permission === 'granted';
 }
 
 function parseData(text) {
@@ -508,7 +606,7 @@ function parseData(text) {
         const fullRoom = parts[4] || '';
         const cleanRoom = parts[5] || fullRoom.replace(/^Alexandria\/floor\d+\//i, '');
         exams.push({
-          subject: parts[0],
+          subject: normalizeSubjectName(parts[0]),
           date: parts[1],
           timeStart: normalizeTime(parts[2]),
           timeEnd: normalizeTime(parts[3]),
@@ -616,6 +714,7 @@ function startCountdown(exam, containerId) {
 function renderStudent(student) {
   const results = document.getElementById('results');
   if (timerInterval) clearInterval(timerInterval);
+  if (notificationInterval) clearInterval(notificationInterval);
   results.innerHTML = '';
 
   if (!student.exams || student.exams.length === 0) {
@@ -626,7 +725,7 @@ function renderStudent(student) {
   const initials = student.name.split(/\s+/).slice(0, 2).map(word => word[0] || '').join('').toUpperCase() || '??';
   const nextExam = getNextExam(student.exams);
   const now = Date.now();
-  const countdownHTML = nextExam ? `<div class="countdown-section"><div class="countdown-label">// next exam — time remaining</div><div class="countdown-subject">${escapeHtml(nextExam.subject)}</div><div class="countdown-timer" id="timer-display"></div></div>` : '';
+  const countdownHTML = nextExam ? `<div class="countdown-section"><div class="countdown-heading"><div class="countdown-copy"><div class="countdown-label">// next exam — time remaining</div><div class="countdown-subject">${escapeHtml(nextExam.subject)}</div></div><button class="notify-btn" id="notify-btn" type="button" aria-label="Enable exam notifications" title="Enable exam notifications">🔔</button></div><div class="countdown-timer" id="timer-display"></div></div>` : '';
 
   const examsHTML = student.exams.map(exam => {
     const isPast = toTs(exam) < now;
@@ -638,7 +737,78 @@ function renderStudent(student) {
   card.className = 'student-card';
   card.innerHTML = `<div class="student-header"><div class="student-avatar">${escapeHtml(initials)}</div><div class="student-info"><div class="student-name">${escapeHtml(student.name)}</div><div class="student-id-badge">ID_${escapeHtml(student.id)}</div></div><div class="exam-count-badge">${student.exams.length}&nbsp;exam${student.exams.length !== 1 ? 's' : ''}</div></div>${countdownHTML}<div class="exams-list">${examsHTML}</div>`;
   results.appendChild(card);
-  if (nextExam) startCountdown(nextExam, 'timer-display');
+  if (nextExam) {
+    startCountdown(nextExam, 'timer-display');
+    setupExamNotifications(student, nextExam);
+  }
+}
+
+function updateNotifyButton(button, active) {
+  button.classList.toggle('active', active);
+  button.classList.toggle('blocked', 'Notification' in window && Notification.permission === 'denied');
+  button.setAttribute('aria-pressed', String(active));
+  button.setAttribute('aria-label', active ? 'Disable exam notifications' : 'Enable exam notifications');
+  button.title = active ? 'Notifications are enabled' : 'Enable exam notifications';
+}
+
+function sendExamNotification(student, exam, days) {
+  if (!canSendNotifications()) return;
+  const dayText = days > 0 ? `${days} من الأيام` : 'أقل من يوم';
+  new Notification(student.name, {
+    body: `متنساش انه باقي ${dayText} على امتحان ${exam.subject}`,
+    tag: getExamKey(student, exam),
+    renotify: true
+  });
+}
+
+function checkExamNotification(student, exam) {
+  const state = getNotificationState(student, exam);
+  if (!state || !state.active) return;
+
+  const days = getDaysRemaining(exam);
+  if (days < state.lastDays) {
+    sendExamNotification(student, exam, days);
+    setNotificationState(student, exam, { active: true, lastDays: days });
+  }
+}
+
+function setupExamNotifications(student, exam) {
+  const button = document.getElementById('notify-btn');
+  if (!button) return;
+
+  let state = getNotificationState(student, exam);
+  updateNotifyButton(button, Boolean(state && state.active));
+
+  if (!('Notification' in window)) {
+    button.classList.add('blocked');
+    button.title = 'Notifications are not supported in this browser';
+    return;
+  }
+
+  button.addEventListener('click', async () => {
+    state = getNotificationState(student, exam);
+
+    if (state && state.active) {
+      clearNotificationState(student, exam);
+      updateNotifyButton(button, false);
+      return;
+    }
+
+    const permission = Notification.permission === 'default'
+      ? await Notification.requestPermission()
+      : Notification.permission;
+
+    if (permission !== 'granted') {
+      updateNotifyButton(button, false);
+      return;
+    }
+
+    setNotificationState(student, exam, { active: true, lastDays: getDaysRemaining(exam) });
+    updateNotifyButton(button, true);
+  });
+
+  notificationInterval = setInterval(() => checkExamNotification(student, exam), 60000);
+  checkExamNotification(student, exam);
 }
 
 function showLoading() {
