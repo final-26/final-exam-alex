@@ -103,6 +103,7 @@ footer{margin-top:auto;padding-top:36px;display:flex;flex-direction:column;align
 .item{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:12px 14px;border:1px solid var(--border);border-radius:12px;margin-bottom:8px;font-size:17px}
 .item small{display:block;font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);letter-spacing:1px}
 .del{background:none;border:0;color:var(--danger);cursor:pointer;font-size:18px}
+.gt{display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;margin-bottom:8px}.gt input[type=datetime-local]{margin-top:0!important}.gt input:disabled{opacity:.35}.mbox label.gc{display:flex;gap:8px;align-items:center;margin:0;padding:9px 14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;color:var(--text);font-size:12px;text-transform:none;letter-spacing:.5px}.gc input{accent-color:#38bdf8}
 .gl{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:1.6px;color:var(--muted);text-transform:uppercase}.gs{display:flex;gap:10px;margin:6px 0 12px}.gs label{display:flex;align-items:center;gap:8px;margin:0;padding:9px 14px;border:1px solid var(--border);border-radius:12px;cursor:pointer;color:var(--text)}.gs input{accent-color:#38bdf8}
 .err{color:var(--danger);font-family:'DM Mono',monospace;font-size:11px;margin-top:8px}
 .hint{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted-soft);line-height:1.7;margin:10px 0}
@@ -366,9 +367,10 @@ function render(st){
   let nxt=null,best=Infinity;
   for(const o of out){o.ts=nextTs(o);if(o.ts<best){best=o.ts;nxt=o}}
   const mine=i=>!i.course||names.some(n=>same(n,norm(i.course)));
+  const res=(x,k)=>{if(!x.times)return x;const n=x.course?names.find(n=>same(n,norm(x.course))):null;const t=x.times[(n&&gm[n])||st.group];return t?{...x,[k]:t,grp:''}:null};
   const gOk=x=>!x.grp||(x.course?names.some(n=>same(n,norm(x.course))&&x.grp.includes(gm[n]||st.group)):x.grp.includes(st.group));
-  const quizzes=(cfg.quizzes||[]).filter(mine).filter(gOk).filter(q=>!q.sec||(q.course?names.some(n=>same(n,norm(q.course))&&(sm[n]||st.sec)==q.sec):st.sec==q.sec)).filter(q=>new Date(q.at)>=now-36e5).sort((a,b)=>new Date(a.at)-new Date(b.at));
-  const asg=(cfg.assignments||[]).filter(mine).filter(gOk).filter(a=>new Date(a.due)>=now-864e5).sort((a,b)=>new Date(a.due)-new Date(b.due));
+  const quizzes=(cfg.quizzes||[]).map(q=>res(q,'at')).filter(Boolean).filter(mine).filter(gOk).filter(q=>!q.sec||(q.course?names.some(n=>same(n,norm(q.course))&&(sm[n]||st.sec)==q.sec):st.sec==q.sec)).filter(q=>new Date(q.at)>=now-36e5).sort((a,b)=>new Date(a.at)-new Date(b.at));
+  const asg=(cfg.assignments||[]).map(a=>res(a,'due')).filter(Boolean).filter(mine).filter(gOk).filter(a=>new Date(a.due)>=now-864e5).sort((a,b)=>new Date(a.due)-new Date(b.due));
   const notes=(cfg.notes||[]).filter(mine);
   const init=st.name.split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'??';
   const bell='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>';
@@ -405,8 +407,8 @@ $('go').onclick=run;$('id-in').onkeydown=e=>{if(e.key==='Enter')run()};
 
 /* ---------- Admin dashboard ---------- */
 const KINDS={
-  quizzes:['Quizzes',[['title','Title'],['course','Course','c'],['sec','Section','s'],['grp','Group','g'],['at','Date & time','dt'],['note','Note']]],
-  assignments:['Assignments',[['title','Title'],['course','Course','c'],['grp','Group','g'],['due','Due','dt'],['note','Note']]],
+  quizzes:['Quizzes',[['title','Title'],['course','Course','c'],['sec','Section','s'],['times','Time for each group','gt'],['note','Note']]],
+  assignments:['Assignments',[['title','Title'],['course','Course','c'],['times','Due for each group','gt'],['note','Note']]],
   notes:['Notes',[['course','Course','c'],['text','Note']]]
 };
 const COURSES=[...new Set(E.map(e=>e.n))].sort();
@@ -415,6 +417,7 @@ async function H(s){try{const b=await crypto.subtle.digest('SHA-256',new TextEnc
 function save(){if(SB_URL)push();else{try{localStorage.setItem(LS,JSON.stringify(cfg))}catch{}};if(lastId&&students[lastId])render(students[lastId])}
 function field(f){
   const[k,l,t]=f;
+  if(t==='gt')return`<div class="gl">${l}</div><div style="margin:8px 0 12px">${['C','D'].map(g=>`<div class="gt"><label class="gc"><input type="checkbox" data-gc="${g}"> Group ${g}</label><input type="datetime-local" data-gt="${g}" disabled></div>`).join('')}</div>`;
   if(t==='g')return`<div class="gl">${l}</div><div class="gs"><label><input type="checkbox" data-g value="C" checked> Group C</label><label><input type="checkbox" data-g value="D" checked> Group D</label></div>`;
   if(t==='s')return`<label>${l}<select data-k="${k}"><option value="">All sections</option><option>1</option><option>2</option><option>3</option></select></label>`;
   if(t==='c')return`<label>${l}<select data-k="${k}"><option value="">All courses</option>${COURSES.map(c=>`<option>${esc(c)}</option>`).join('')}</select></label>`;
@@ -425,7 +428,7 @@ function adminUI(){
   let body='';
   if(KINDS[tab]){
     const items=cfg[tab]||[];
-    body=items.map(i=>`<div class="item"><div>${esc(i.title||i.text)}<small>${esc(i.course||'All courses')} ${i.sec?'· SEC '+i.sec+' ':''}${i.grp?'· GROUP '+i.grp+' ':''}${i.at?'· '+fmt(i.at):''}${i.due?'· '+fmt(i.due):''}</small></div><button class="del" data-del="${i.id}">✕</button></div>`).join('')||'<p class="hint">Nothing added yet.</p>';
+    body=items.map(i=>`<div class="item"><div>${esc(i.title||i.text)}<small>${esc(i.course||'All courses')} ${i.sec?'· SEC '+i.sec+' ':''}${i.grp?'· GROUP '+i.grp+' ':''}${i.times?Object.entries(i.times).map(([g,t])=>'· G'+g+' '+fmt(t)+' ').join(''):''}${i.at?'· '+fmt(i.at):''}${i.due?'· '+fmt(i.due):''}</small></div><button class="del" data-del="${i.id}">✕</button></div>`).join('')||'<p class="hint">Nothing added yet.</p>';
     body+=`<div id="form" style="margin-top:14px">${KINDS[tab][1].map(field).join('')}<button class="btn" data-act="add">Add</button></div>`;
   }else if(tab==='banner'){
     const b=cfg.banner||{};
@@ -437,7 +440,8 @@ function adminUI(){
 }
 function loginUI(){$('mbox').innerHTML=`<button class="x" data-act="close">×</button><h2>Admin Login</h2><label>${SB_URL?'Email':'Username'}<input id="l-user" autocomplete="username"></label><label>Password<input id="l-pass" type="password" autocomplete="current-password"></label><button class="btn" data-act="login">Login</button><div class="err" id="l-err"></div>`}
 function openModal(){$('modal').classList.add('on');authed?adminUI():loginUI()}
-function msg(t,ok){const f=$('form');if(f)f.insertAdjacentHTML('beforeend','<div class="err" style="'+(ok?'color:var(--warm)':'')+'">'+t+'</div>')}
+$('modal').addEventListener('change',e=>{const c=e.target.dataset.gc;if(!c)return;const i=$('modal').querySelector('[data-gt="'+c+'"]');i.disabled=!e.target.checked;if(!e.target.checked)i.value=''});
+function msg(t,ok){const f=$('form');if(f)f.querySelectorAll('.err').forEach(x=>x.remove());if(f)f.insertAdjacentHTML('beforeend','<div class="err" style="'+(ok?'color:var(--warm)':'')+'">'+t+'</div>')}
 $('lock').onclick=openModal;
 $('modal').addEventListener('click',async e=>{
   if(e.target===$('modal'))return $('modal').classList.remove('on');
@@ -461,8 +465,13 @@ $('modal').addEventListener('click',async e=>{
   if(a==='add'){
     const o={id:Date.now()};let ok=true;
     $('form').querySelectorAll('[data-k]').forEach(i=>{o[i.dataset.k]=i.value.trim()});
-    if(tab!=='notes'){const gs=[...$('form').querySelectorAll('[data-g]:checked')].map(i=>i.value).join('');if(!gs){msg('Select at least one group.',0);return}o.grp=gs==='CD'?'':gs}
-    if(tab==='notes'?!o.text:(!o.title||!(o.at||o.due))){msg('Please fill the title and the date first.',0);return}
+    if(tab!=='notes'){
+      const ch=[...$('form').querySelectorAll('[data-gc]:checked')],times={};
+      ch.forEach(c=>{const v=$('form').querySelector('[data-gt="'+c.dataset.gc+'"]').value;if(v)times[c.dataset.gc]=v});
+      if(!ch.length||Object.keys(times).length!==ch.length){msg('Tick at least one group and set a time for each ticked group.',0);return}
+      o.times=times;
+    }
+    if(tab==='notes'?!o.text:!o.title){msg('Please fill the title first.',0);return}
     (cfg[tab]=cfg[tab]||[]).push(o);save();adminUI();msg(SB_URL?'Added ✓':'Added ✓ — now download config.json from Settings and upload it to GitHub to publish.',1)
   }
   if(a==='banner'){cfg.banner={on:$('b-on').checked,text:$('b-text').value.trim()};save();adminUI()}
@@ -509,4 +518,4 @@ $('modal').addEventListener('click',async e=>{
 loadAll();
 </script>
 </body>
-</html>
+  </html>
