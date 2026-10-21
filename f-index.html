@@ -147,6 +147,17 @@ footer{margin-top:auto;padding-top:36px;display:flex;flex-direction:column;align
 const DATA_URLS=['SUCCESS_DATA.txt','./SUCCESS_DATA.txt'];
 const CFG_URLS=['config.json','./config.json'];
 const LS='portalDraft';
+/* Supabase (public anon key only — safe in the browser, protected by RLS) */
+const SB_URL='https://izmlcwzfovlapcrcctgt.supabase.co',SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Iml6bWxjd3pmb3ZsYXBjcmNjdGd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MDk3OTUsImV4cCI6MjEwODE4NTc5NX0.sLQJhtR15H6zi9O3cE0T142UeAT_yRnaccuR83_vp10';
+let tok=null,sbOk=false;
+async function push(){
+  if(!SB_URL||!tok)return;
+  const st=$('st');if(st)st.textContent='Saving…';
+  try{
+    const r=await fetch(SB_URL+'/rest/v1/portal_config?on_conflict=id',{method:'POST',headers:{apikey:SB_KEY,Authorization:'Bearer '+tok,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({id:1,data:cfg,updated_at:new Date().toISOString()})});
+    const e=$('st');if(e)e.textContent=r.ok?'Saved ✓ — live for everyone':'Save failed ('+r.status+') — please log in again';
+  }catch{const e=$('st');if(e)e.textContent='Network error while saving'}
+}
 /* Sections: day|hour|dur|type(L lecture,V vcr lecture,S section)|course|room|hall-or-section|people */
 const CN={"acn": "Advanced Computer Networks", "ct": "Communication Technology", "co": "Computer Organization", "ai": "Artificial Intelligence", "os": "Operating Systems", "m1": "Mathematics (1)", "m0": "Mathematics (0)", "dm": "Discrete Mathematics", "m3": "Mathematics-3", "dsp": "Digital Signal Processing", "el": "Electronics", "cnt": "Computer Networks Technology", "idb": "Introduction to Database Systems", "cg": "Computer Graphics", "es": "Embedded Systems", "nrs": "Network Routing and Switching", "sl": "Selected Labs in Software Engineering", "oop": "Object Oriented Programming", "isw": "Introduction to Software Engineering", "ps2": "Probability and Statistics-2", "ic": "Introduction to Computers", "ew": "Engineering Software", "aad": "Algorithms Analysis and Design", "se2": "Software Engineering 2"};
 const PP={"sa": "Dr. Saied Abdelatty", "fm": "Dr. Fathi Al Mesiri", "mb": "Dr. Mahmoud Bassiouni", "ha": "Dr. Hanaa Abd Elhady", "te": "Dr. Talat Eldanaf / Dr. Asmaa Gamal", "am": "Dr. Adel Mourad", "ag": "Dr. Asmaa Gamal Taha", "ms": "Dr. Manal Shaaban", "ra": "Dr. Rodayna Abdelsalam", "dt": "Dr. Dina Tarek", "rr": "Dr. Reham Adel", "fr": "Dr. Fawzia Ramadan Sayed", "ym": "Dr. Yasmine Mahmoud", "ma": "Dr. M. Ashour", "as": "Dr. Mohamed Abo Shady", "mk": "Eng. Mohamed Kamal", "mf": "Eng. Mohamed Fekry", "mn": "Eng. Mina Nagy", "kh": "Eng. Khidr", "hb": "Eng. Heba", "rg": "Eng. Raghda", "ni": "TA Nihal", "no": "TA Nourhan", "nd": "TA Nada"};
@@ -309,9 +320,12 @@ function seed(){
 async function loadAll(){
   for(const u of DATA_URLS){try{const r=await fetch(u,{cache:'no-store'});if(!r.ok)throw 0;const p=parseData(await r.text());if(Object.keys(p).length){students=p;break}}catch{}}
   if(!students){students={};demo=true}
-  for(const u of CFG_URLS){try{const r=await fetch(u,{cache:'no-store'});if(r.ok){cfg=await r.json();break}}catch{}}
-  try{const d=JSON.parse(localStorage.getItem(LS));if(d)cfg=d}catch{}
-  cfg=cfg||seed();
+  if(SB_URL){try{const r=await fetch(SB_URL+'/rest/v1/portal_config?id=eq.1&select=data',{headers:{apikey:SB_KEY,Authorization:'Bearer '+SB_KEY},cache:'no-store'});if(r.ok){const j=await r.json();cfg=(j[0]&&j[0].data)||{banner:{on:false,text:''},quizzes:[],assignments:[],notes:[]};sbOk=true}}catch{}}
+  if(!sbOk){
+    for(const u of CFG_URLS){try{const r=await fetch(u,{cache:'no-store'});if(r.ok){cfg=await r.json();break}}catch{}}
+    try{const d=JSON.parse(localStorage.getItem(LS));if(d)cfg=d}catch{}
+    cfg=cfg||seed();
+  }
 }
 
 function build(st){
@@ -398,7 +412,7 @@ const KINDS={
 const COURSES=[...new Set(E.map(e=>e.n))].sort();
 let tab='quizzes',authed=false;
 async function H(s){try{const b=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s));return[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')}catch{return s}}
-function save(){try{localStorage.setItem(LS,JSON.stringify(cfg))}catch{};if(lastId&&students[lastId])render(students[lastId])}
+function save(){if(SB_URL)push();else{try{localStorage.setItem(LS,JSON.stringify(cfg))}catch{}};if(lastId&&students[lastId])render(students[lastId])}
 function field(f){
   const[k,l,t]=f;
   if(t==='g')return`<div class="gl">${l}</div><div class="gs"><label><input type="checkbox" data-g value="C" checked> Group C</label><label><input type="checkbox" data-g value="D" checked> Group D</label></div>`;
@@ -417,11 +431,11 @@ function adminUI(){
     const b=cfg.banner||{};
     body=`<label><input type="checkbox" id="b-on" ${b.on?'checked':''}> Show banner</label><label>Banner text<input id="b-text" value="${esc(b.text||'')}"></label><button class="btn" data-act="banner">Save banner</button>`;
   }else{
-    body=`<label>Username<input id="n-user" value="${esc(cfg.user||'admin')}"></label><label>New password<input id="n-pass" type="password" placeholder="leave empty to keep"></label><button class="btn" data-act="cred">Save login</button><p class="hint">Changes are saved in this browser instantly. To publish them to students, download config.json and upload it next to index.html on GitHub.</p><button class="btn" data-act="dl">Download config.json</button><button class="btn o" data-act="copy">Copy JSON</button><button class="btn o" data-act="reset">Clear local draft</button><button class="btn o" data-act="out">Logout</button>`;
+    body=`${SB_URL?'':`<label>Username<input id="n-user" value="${esc(cfg.user||'admin')}"></label>`}<label>New password<input id="n-pass" type="password" placeholder="leave empty to keep"></label><button class="btn" data-act="cred">Save login</button><p class="hint">${SB_URL?'Everything you add is saved live for all students. config.json is only a backup copy.':'Changes are saved in this browser instantly. To publish them to students, download config.json and upload it next to index.html on GitHub.'}</p><button class="btn" data-act="dl">Download config.json</button><button class="btn o" data-act="copy">Copy JSON</button><button class="btn o" data-act="reset">Clear local draft</button><button class="btn o" data-act="out">Logout</button>`;
   }
-  $('mbox').innerHTML=`<button class="x" data-act="close">×</button><h2>Dashboard</h2><div class="tabs">${tabs.map(([k,l])=>`<button class="tab${k===tab?' on':''}" data-tab="${k}">${l}</button>`).join('')}</div>${body}`;
+  $('mbox').innerHTML=`<button class="x" data-act="close">×</button><h2>Dashboard</h2><div class="tabs">${tabs.map(([k,l])=>`<button class="tab${k===tab?' on':''}" data-tab="${k}">${l}</button>`).join('')}</div>${body}<div class="err" id="st" style="color:var(--warm)"></div>`;
 }
-function loginUI(){$('mbox').innerHTML=`<button class="x" data-act="close">×</button><h2>Admin Login</h2><label>Username<input id="l-user" autocomplete="username"></label><label>Password<input id="l-pass" type="password" autocomplete="current-password"></label><button class="btn" data-act="login">Login</button><div class="err" id="l-err"></div>`}
+function loginUI(){$('mbox').innerHTML=`<button class="x" data-act="close">×</button><h2>Admin Login</h2><label>${SB_URL?'Email':'Username'}<input id="l-user" autocomplete="username"></label><label>Password<input id="l-pass" type="password" autocomplete="current-password"></label><button class="btn" data-act="login">Login</button><div class="err" id="l-err"></div>`}
 function openModal(){$('modal').classList.add('on');authed?adminUI():loginUI()}
 function msg(t,ok){const f=$('form');if(f)f.insertAdjacentHTML('beforeend','<div class="err" style="'+(ok?'color:var(--warm)':'')+'">'+t+'</div>')}
 $('lock').onclick=openModal;
@@ -433,22 +447,35 @@ $('modal').addEventListener('click',async e=>{
   const a=t.dataset.act;
   if(a==='close')$('modal').classList.remove('on');
   if(a==='login'){
+    if(SB_URL){
+      try{
+        const r=await fetch(SB_URL+'/auth/v1/token?grant_type=password',{method:'POST',headers:{apikey:SB_KEY,'Content-Type':'application/json'},body:JSON.stringify({email:$('l-user').value.trim(),password:$('l-pass').value})});
+        const j=await r.json();
+        if(j.access_token){tok=j.access_token;authed=true;adminUI()}else $('l-err').textContent=j.error_description||j.msg||'Login failed';
+      }catch{$('l-err').textContent='Network error'}
+    }else{
     const ok=$('l-user').value.trim()===(cfg.user||'admin')&&await H($('l-pass').value)===(cfg.pw||await H('12345'));
     if(ok){authed=true;adminUI()}else $('l-err').textContent='Wrong username or password';
+    }
   }
   if(a==='add'){
     const o={id:Date.now()};let ok=true;
     $('form').querySelectorAll('[data-k]').forEach(i=>{o[i.dataset.k]=i.value.trim()});
     if(tab!=='notes'){const gs=[...$('form').querySelectorAll('[data-g]:checked')].map(i=>i.value).join('');if(!gs){msg('Select at least one group.',0);return}o.grp=gs==='CD'?'':gs}
     if(tab==='notes'?!o.text:(!o.title||!(o.at||o.due))){msg('Please fill the title and the date first.',0);return}
-    (cfg[tab]=cfg[tab]||[]).push(o);save();adminUI();msg('Added ✓ — now download config.json from Settings and upload it to GitHub to publish.',1)
+    (cfg[tab]=cfg[tab]||[]).push(o);save();adminUI();msg(SB_URL?'Added ✓':'Added ✓ — now download config.json from Settings and upload it to GitHub to publish.',1)
   }
   if(a==='banner'){cfg.banner={on:$('b-on').checked,text:$('b-text').value.trim()};save();adminUI()}
+  if(a==='cred'&&SB_URL){
+    const p=$('n-pass').value;if(p.length<6){$('st').textContent='Password must be at least 6 characters';return}
+    const r=await fetch(SB_URL+'/auth/v1/user',{method:'PUT',headers:{apikey:SB_KEY,Authorization:'Bearer '+tok,'Content-Type':'application/json'},body:JSON.stringify({password:p})});
+    $('st').textContent=r.ok?'Password changed ✓':'Failed to change password';return;
+  }
   if(a==='cred'){cfg.user=$('n-user').value.trim()||'admin';const p=$('n-pass').value;if(p)cfg.pw=await H(p);save();adminUI()}
   if(a==='dl'){const bl=new Blob([JSON.stringify(cfg,null,2)],{type:'application/json'}),l=document.createElement('a');l.href=URL.createObjectURL(bl);l.download='config.json';l.click()}
   if(a==='copy'){try{await navigator.clipboard.writeText(JSON.stringify(cfg,null,2));t.textContent='Copied ✓'}catch{t.textContent='Copy failed'}}
   if(a==='reset'){try{localStorage.removeItem(LS)}catch{};t.textContent='Cleared — reload page'}
-  if(a==='out'){authed=false;loginUI()}
+  if(a==='out'){authed=false;tok=null;loginUI()}
 });
 
 /* ---------- Background ---------- */
